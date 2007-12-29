@@ -6,7 +6,6 @@
 #include <pspctrl.h>
 #include <string.h>
 #include <stdio.h>
-#include "pspusbgps.h"
 
 #include "dds.h"
 
@@ -18,8 +17,6 @@ PSP_MAIN_THREAD_ATTR( 0 );
 #define THREAD_PRIORITY 		100
 #define MAIN_THREAD_DELAY		100000	// 10Hz
 
-/*** 機能選択 ***************************************************************/
-
 /*** new type ***************************************************************/
 
 struct SyscallHeader {
@@ -29,16 +26,18 @@ struct SyscallHeader {
 	unsigned int size;
 };
 
-typedef int ( *SCE_CTRL_READ_BUFFER )( SceCtrlData *pad_data, int count );
-typedef int ( *SCE_AUDIO_OUTPUT_BLOCKING )( int channel, int vol, void *buf );
+/*** hook proc assist *******************************************************/
+
+#define HOOK_PROC( type, func, arg, mod, nid )	typedef type ( *func##_t ) arg;
+#include "hookproc.h"
+
+#define HOOK_PROC( type, func, arg, mod, nid )	func##_t func##_Real;
+#include "hookproc.h"
 
 /*** Audio hook proc. *******************************************************/
 
-#define NID_sceAudioOutputBlocking	0x136CAF51
-
 USHORT	g_uAudioOutputCnt	SEC_BSS_WORD;
 
-SCE_AUDIO_OUTPUT_BLOCKING	sceAudioOutputBlocking_Real;
 int sceAudioOutputBlocking_Hook( int channel, int vol, void *buf ){
 	int iRet = sceAudioOutputBlocking_Real( channel, vol, buf );
 	
@@ -49,15 +48,12 @@ int sceAudioOutputBlocking_Hook( int channel, int vol, void *buf ){
 
 /*** パッドフック関数 *******************************************************/
 
-#define NID_sceCtrlReadBufferPositive	0x1F803938
-
 USHORT	g_uCtrlReadCnt		SEC_BSS_WORD;
 
 #define	READ_CNT_GPS_START			0x2000
 #define READ_CNT_FINISH				0xFFF0
 #define	READ_CNT_GPS_COMPLETE		( READ_CNT_FINISH - 20 )
 
-SCE_CTRL_READ_BUFFER sceCtrlReadBufferPositive_Real;
 int sceCtrlReadBufferPositive_Hook( SceCtrlData *pad_data, int count ){
 	
 	//DebugMsg( "@RP:%d", count );
@@ -75,12 +71,13 @@ int sceCtrlReadBufferPositive_Hook( SceCtrlData *pad_data, int count ){
 		
 		//DebugMsg( "@%d\n", g_uCtrlReadCnt );
 		/*
+		g_uAudioOutputCnt の値:
 		346 op 再生終了
-		376 警告
-		406 GPS捕捉中
-		436 ↑閉じる
-		466 GPS捕捉完了
-		??? ↑閉じる
+		376 警告画面の○を押したときの音が終了
+		406 GPS捕捉中画面の音が終了
+		436 ↑閉じたときの音が終了
+		466 GPS捕捉完了の音が終了
+		??? ↑閉じたときの音が終了
 		*/
 		
 		if( g_uAudioOutputCnt <= 350 ){
@@ -254,9 +251,6 @@ u32 PatchNID2( char modname[27], u32 uNID, void *func ){
 
 /*** メイン *****************************************************************/
 
-#define HOOK_API( mod, func )	func ## _Real = ( void* )PatchNID2( mod, NID_ ## func, func ## _Hook )
-#define UNHOOK_API( mod, func )	PatchNID2( mod, NID_ ## func , func ## _Real )
-
 //Keep our module running
 int main_thread( SceSize args, void *argp ) {
 	
@@ -265,24 +259,14 @@ int main_thread( SceSize args, void *argp ) {
 		sceKernelDelayThread( MAIN_THREAD_DELAY );
 	
 	// GPS API フック開始
-	DebugMsg( "USB GPS hook start\n" );
+	DebugMsg( "API hook start\n" );
 	
-	HOOK_API( "sceController_Service",	sceCtrlReadBufferPositive );
-	HOOK_API( "sceAudio_Driver", sceAudioOutputBlocking );
+	#define HOOK_PROC( type, func, arg, mod, nid ) \
+		func ## _Real = ( void* )PatchNID2( mod, nid, func ## _Hook );
+	#include "hookproc.h"
 	
 	while( 1 ) sceKernelSleepThread();
 	
-	/*
-	while( g_uCtrlReadCnt < READ_CNT_FINISH ){
-		sceKernelDelayThread( MAIN_THREAD_DELAY );
-	}
-	
-	// フック解除
-	UNHOOK_API( "sceUSBGps_Driver",		sceUsbGpsGetData );
-	UNHOOK_API( "sceController_Service",sceCtrlReadBufferPositive );
-	
-	DebugMsg( "exit thread\n" );
-	*/
 	return 0;
 }
 
