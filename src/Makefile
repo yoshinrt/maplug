@@ -50,7 +50,7 @@ release:
 	
 	( \
 		cd ..; \
-		cp -r MS_ROOT //Mirage/yoshi/public_html/maplus_conv/maplug.html maplug$(VERSION); \
+		cp -r MS_ROOT maplug$(VERSION); \
 		cp -r src/maplug*.prx maplug$(VERSION)/MS_ROOT/seplugins; \
 	)
 	

@@ -29,84 +29,33 @@ struct SyscallHeader {
 	unsigned int size;
 };
 
-typedef int ( *SCE_USB_GPS_OPEN )( void );		// Open the GPS device
-typedef int ( *SCE_USB_GPS_CLOSE )( void );		// Close the GPS device
-typedef int ( *SCE_USB_GPS_GET_DATA )( gpsdata *buffer, satdata *satellites );	// Get data from GPS ( size of buffer = 0x30 u32 ? )
-
 typedef int ( *SCE_CTRL_READ_BUFFER )( SceCtrlData *pad_data, int count );
-typedef int ( *SCE_IO_OPEN )( const char *file, int flags, SceMode mode );
-
-typedef int ( *SCE_AUDIO_OUTPUT )( int channel, int vol, void *buf );
 typedef int ( *SCE_AUDIO_OUTPUT_BLOCKING )( int channel, int vol, void *buf );
-typedef int ( *SCE_AUDIO_OUTPUT_PANNED )( int channel, int leftvol, int rightvol, void *buffer );
-typedef int ( *SCE_AUDIO_OUTPUT_PANNED_BLOCKING )( int channel, int leftvol, int rightvol, void *buffer );
-
-/*** GPS フック関数 *********************************************************/
-
-SCE_USB_GPS_GET_DATA	sceUsbGpsGetData_Real;
-
-UCHAR	g_cGPSValid	SEC_BSS_BYTE;
-
-int sceUsbGpsGetData_Hook( gpsdata *buffer, satdata *satellites ){
-	
-	int iRet = sceUsbGpsGetData_Real( buffer, satellites );
-	g_cGPSValid = buffer->valid;
-	return iRet;
-}
 
 /*** Audio hook proc. *******************************************************/
 
-#define NID_sceAudioOutput					0x8C1009B2
-#define NID_sceAudioOutputBlocking			0x136CAF51
-#define NID_sceAudioOutputPanned			0xE2D56B2D
-#define NID_sceAudioOutputPannedBlocking	0x13F592BC
+#define NID_sceAudioOutputBlocking	0x136CAF51
 
-SCE_AUDIO_OUTPUT					sceAudioOutput_Real;
-SCE_AUDIO_OUTPUT_BLOCKING			sceAudioOutputBlocking_Real;
-SCE_AUDIO_OUTPUT_PANNED				sceAudioOutputPanned_Real;
-SCE_AUDIO_OUTPUT_PANNED_BLOCKING	sceAudioOutputPannedBlocking_Real;
+USHORT	g_uAudioOutputCnt	SEC_BSS_WORD;
 
-int sceAudioOutput_Hook( int channel, int vol, void *buf ){
-	DebugMsg( "O" );
-	return sceAudioOutput_Real( channel, vol, buf );
-}
-
+SCE_AUDIO_OUTPUT_BLOCKING	sceAudioOutputBlocking_Real;
 int sceAudioOutputBlocking_Hook( int channel, int vol, void *buf ){
-	DebugMsg( "B" );
-	return sceAudioOutputBlocking_Real( channel, vol, buf );
-}
-
-int sceAudioOutputPanned_Hook( int channel, int leftvol, int rightvol, void *buffer ){
-	DebugMsg( "P" );
-	return sceAudioOutputPanned_Real( channel, leftvol, rightvol, buffer );
-}
-
-int sceAudioOutputPannedBlocking_Hook( int channel, int leftvol, int rightvol, void *buffer ){
-	DebugMsg( "p" );
-	return sceAudioOutputPannedBlocking_Real( channel, leftvol, rightvol, buffer );
-}
-
-
-SCE_IO_OPEN sceIoOpen_Real;
-int sceIoOpen_Hook( const char *file, int flags, SceMode mode ){
+	int iRet = sceAudioOutputBlocking_Real( channel, vol, buf );
 	
-	int iRet = sceIoOpen_Real( file, flags, mode );
-	
-	DebugMsg( "snd:%s\n", file );
-	
+	++g_uAudioOutputCnt;
+	//DebugMsg( "@%d\n", g_uAudioOutputCnt );
 	return iRet;
 }
 
 /*** パッドフック関数 *******************************************************/
 
+#define NID_sceCtrlReadBufferPositive	0x1F803938
+
 USHORT	g_uCtrlReadCnt		SEC_BSS_WORD;
 
-#define READ_CNT_FINISH		0xFFF0
-#define	READ_CNT_CURPOS		( READ_CNT_FINISH - 1 )
-#define	READ_CNT_CONFIRM	( READ_CNT_CURPOS - 20 )
-#define	READ_CNT_GPS_VALID	( READ_CNT_CONFIRM - 700 )
-
-#define KEY_WAIT( n )	(( uCnt += ( n )) == g_uCtrlReadCnt )
+#define	READ_CNT_GPS_START			0x2000
+#define READ_CNT_FINISH				0xFFF0
+#define	READ_CNT_GPS_COMPLETE		( READ_CNT_FINISH - 20 )
 
 SCE_CTRL_READ_BUFFER sceCtrlReadBufferPositive_Real;
 int sceCtrlReadBufferPositive_Hook( SceCtrlData *pad_data, int count ){
@@ -118,42 +67,43 @@ int sceCtrlReadBufferPositive_Hook( SceCtrlData *pad_data, int count ){
 	
 	// ボタンが押されたら，または GPS 捕捉開始したら，自動キー入力停止
 	if( g_uCtrlReadCnt < READ_CNT_FINISH ){
-		if( pad_data->Buttons & (
-			PSP_CTRL_UP			|
-			PSP_CTRL_DOWN		|
-			PSP_CTRL_LEFT		|
-			PSP_CTRL_RIGHT		|
-			PSP_CTRL_CIRCLE		|
-			PSP_CTRL_CROSS		|
-			PSP_CTRL_TRIANGLE	|
-			PSP_CTRL_SQUARE		|
-			PSP_CTRL_SELECT		|
-			PSP_CTRL_START		|
-			PSP_CTRL_LTRIGGER	|
-			PSP_CTRL_RTRIGGER
-		)){
+		if( pad_data->Buttons & PSP_CTRL_CIRCLE ){
 			g_uCtrlReadCnt = READ_CNT_FINISH;
 		}
 		
 		/************************************************************************/
 		
-		DebugMsg( "@%d\n", g_uCtrlReadCnt );
+		//DebugMsg( "@%d\n", g_uCtrlReadCnt );
+		/*
+		346 op 再生終了
+		376 警告
+		406 GPS捕捉中
+		436 ↑閉じる
+		466 GPS捕捉完了
+		??? ↑閉じる
+		*/
 		
-		UINT uCnt = 0;
-		if( g_cGPSValid && g_uCtrlReadCnt < READ_CNT_GPS_VALID )
-			g_uCtrlReadCnt = READ_CNT_GPS_VALID;
-		
-		// オープニングのキー入力
-		if     ( KEY_WAIT( 600 )) pad_data->Buttons = PSP_CTRL_START;	// スタート
-		else if(
-			KEY_WAIT( 100 ) ||	// 警告
-			KEY_WAIT( 200 ) ||	// GPS 捕捉開始
-			g_uCtrlReadCnt == READ_CNT_CONFIRM
-		) pad_data->Buttons = PSP_CTRL_CIRCLE;	// GPS 捕捉完了
-		
-		else if( g_uCtrlReadCnt == READ_CNT_CURPOS )
-			pad_data->Buttons = PSP_CTRL_CROSS;	// 現在位置に移動
-		
+		if( g_uAudioOutputCnt <= 350 ){
+			// オープニング・警告画面のキー入力
+			if( g_uCtrlReadCnt & 1 ) pad_data->Buttons = PSP_CTRL_CIRCLE | PSP_CTRL_START;
+		}else if( g_uCtrlReadCnt < READ_CNT_GPS_START ){
+			if( g_uAudioOutputCnt == 406 ){
+				// GPS 捕捉開始ダイアログ
+				pad_data->Buttons = PSP_CTRL_CIRCLE;
+				g_uCtrlReadCnt = READ_CNT_GPS_START;
+			}
+		}else if( g_uCtrlReadCnt < READ_CNT_GPS_COMPLETE ){
+			if( g_uAudioOutputCnt == 466 ){
+				// GPS 捕捉完了ダイアログがでた
+				// 音が鳴るまで○連打
+				if( g_uCtrlReadCnt & 1 ) pad_data->Buttons = PSP_CTRL_CIRCLE;
+			}else if( g_uAudioOutputCnt > 466 ){
+				g_uCtrlReadCnt = READ_CNT_GPS_COMPLETE;
+			}
+		}else{
+			// 現在位置に移動
+			if( g_uCtrlReadCnt & 1 ) pad_data->Buttons = PSP_CTRL_CROSS;
+		}
 		++g_uCtrlReadCnt;
 	}
 	return iRet;
@@ -191,7 +141,7 @@ INLINE u32 FindNID( char modname[27], u32 nid ){
 	for( p = 0; p < count; p++ ){
 		tmpmod = sceKernelFindModuleByUID( ids[p] );
 		
-		DebugMsg( "FindNID:modname:%s\n", tmpmod->modname );
+		//DebugMsg( "FindNID:modname:%s\n", tmpmod->modname );
 		
 		if( strcmp( tmpmod->modname, modname ) == 0 ){
 			pMod = tmpmod;
@@ -304,32 +254,21 @@ u32 PatchNID2( char modname[27], u32 uNID, void *func ){
 
 /*** メイン *****************************************************************/
 
-#define NID_sceUsbGpsGetData			0x934EC2B2
-#define NID_sceCtrlReadBufferPositive	0x1F803938
-
-#define NID_sceIoOpen	0x109F50BC
-
 #define HOOK_API( mod, func )	func ## _Real = ( void* )PatchNID2( mod, NID_ ## func, func ## _Hook )
 #define UNHOOK_API( mod, func )	PatchNID2( mod, NID_ ## func , func ## _Real )
 
 //Keep our module running
 int main_thread( SceSize args, void *argp ) {
 	
-	// GPS モジュール ロード待ち
-	while( !sceKernelFindModuleByName( "sceUSBGps_Driver" ))
+	// maplus ロード待ち
+	while( !sceKernelFindModuleByName( "maplus" ))
 		sceKernelDelayThread( MAIN_THREAD_DELAY );
 	
 	// GPS API フック開始
 	DebugMsg( "USB GPS hook start\n" );
 	
-	HOOK_API( "sceUSBGps_Driver",		sceUsbGpsGetData );
 	HOOK_API( "sceController_Service",	sceCtrlReadBufferPositive );
-	
-	HOOK_API( "sceAudio_Driver", sceAudioOutput );
 	HOOK_API( "sceAudio_Driver", sceAudioOutputBlocking );
-	HOOK_API( "sceAudio_Driver", sceAudioOutputPanned );
-	HOOK_API( "sceAudio_Driver", sceAudioOutputPannedBlocking );
-	HOOK_API( "sceIOFileManager", sceIoOpen );
 	
 	while( 1 ) sceKernelSleepThread();
 	
