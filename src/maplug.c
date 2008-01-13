@@ -26,17 +26,11 @@ struct SyscallHeader {
 	unsigned int size;
 };
 
-/*** hook proc assist *******************************************************/
-
-#define HOOK_PROC( type, func, arg, mod, nid )	typedef type ( *func##_t ) arg;
-#include "hookproc.h"
-
-#define HOOK_PROC( type, func, arg, mod, nid )	func##_t func##_Real;
-#include "hookproc.h"
-
 /*** Audio hook proc. *******************************************************/
 
 USHORT	g_uAudioOutputCnt	SEC_BSS_WORD;
+
+int ( *sceAudioOutputBlocking_Real )( int channel, int vol, void *buf );
 
 int sceAudioOutputBlocking_Hook( int channel, int vol, void *buf ){
 	int iRet = sceAudioOutputBlocking_Real( channel, vol, buf );
@@ -53,6 +47,8 @@ USHORT	g_uCtrlReadCnt		SEC_BSS_WORD;
 #define	READ_CNT_GPS_START			0x2000
 #define READ_CNT_FINISH				0xFFF0
 #define	READ_CNT_GPS_COMPLETE		( READ_CNT_FINISH - 20 )
+
+int ( *sceCtrlReadBufferPositive_Real )( SceCtrlData *pad_data, int count );
 
 int sceCtrlReadBufferPositive_Hook( SceCtrlData *pad_data, int count ){
 	
@@ -108,6 +104,7 @@ int sceCtrlReadBufferPositive_Hook( SceCtrlData *pad_data, int count ){
 
 /*** API フック用 ***********************************************************/
 
+/*
 INLINE u32 NIDByName( const char *name ){
 	u8 digest[20];
 	u32 nid;
@@ -120,6 +117,7 @@ INLINE u32 NIDByName( const char *name ){
 	
 	return 0;
 }
+*/
 
 INLINE u32 FindNID( char modname[27], u32 nid ){
 	struct SceLibraryEntryTable *entry;
@@ -251,6 +249,9 @@ u32 PatchNID2( char modname[27], u32 uNID, void *func ){
 
 /*** メイン *****************************************************************/
 
+#define HOOK_API( mod, func )		func ## _Real = ( void* )PatchNID( mod, #func, func ## _Hook )
+#define HOOK_API2( mod, func, nid )	func ## _Real = ( void* )PatchNID2( mod, nid, func ## _Hook )
+
 //Keep our module running
 int main_thread( SceSize args, void *argp ) {
 	
@@ -261,9 +262,8 @@ int main_thread( SceSize args, void *argp ) {
 	// GPS API フック開始
 	DebugMsg( "API hook start\n" );
 	
-	#define HOOK_PROC( type, func, arg, mod, nid ) \
-		func ## _Real = ( void* )PatchNID2( mod, nid, func ## _Hook );
-	#include "hookproc.h"
+	HOOK_API2( "sceController_Service",	sceCtrlReadBufferPositive,	0x1F803938 );
+	HOOK_API2( "sceAudio_Driver",		sceAudioOutputBlocking,		0x136CAF51 );
 	
 	while( 1 ) sceKernelSleepThread();
 	

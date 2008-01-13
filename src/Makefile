@@ -25,7 +25,7 @@ endif
 
 LIBDIR =
 LDFLAGS =
-LIBS = -lpsppower_driver
+LIBS = 
 
 ifdef DEBUG
 	OBJS += sceHprm_driver.o debug.o
@@ -35,7 +35,7 @@ endif
 PSPSDK=$(shell psp-config --pspsdk-path)
 include $(PSPSDK)/lib/build_prx.mak
 
-VERSION=100
+VERSION=090
 release:
 	make allclean
 	
@@ -52,12 +52,6 @@ release:
 		cd ..; \
 		cp -r MS_ROOT maplug$(VERSION); \
 		cp -r src/maplug*.prx maplug$(VERSION)/MS_ROOT/seplugins; \
-	)
-	
-	( \
-		cd ../pc_tools; \
-		cp Release/nme2kml.bat \
-			../maplug$(VERSION)/pc_tools \
 	)
 	
 	( cd ../maplug$(VERSION); \
