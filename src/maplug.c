@@ -33,7 +33,11 @@ USHORT	g_uAudioOutputCnt	SEC_BSS_WORD;
 int ( *sceAudioOutputBlocking_Real )( int channel, int vol, void *buf );
 
 int sceAudioOutputBlocking_Hook( int channel, int vol, void *buf ){
-	int iRet = sceAudioOutputBlocking_Real( channel, vol, buf );
+	int iRet = 0;
+	
+	if( !( g_uCtrlReadCnt < READ_CNT_FINISH && g_uAudioOutputCnt <= 436 )){
+		iRet = sceAudioOutputBlocking_Real( channel, vol, buf );
+	}
 	
 	++g_uAudioOutputCnt;
 	//DebugMsg( "@%d\n", g_uAudioOutputCnt );
