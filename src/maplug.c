@@ -17,6 +17,10 @@ PSP_MAIN_THREAD_ATTR( 0 );
 #define THREAD_PRIORITY 		100
 #define MAIN_THREAD_DELAY		100000	// 10Hz
 
+#define	READ_CNT_GPS_START			0x2000
+#define READ_CNT_FINISH				0xFFF0
+#define	READ_CNT_GPS_COMPLETE		( READ_CNT_FINISH - 20 )
+
 /*** new type ***************************************************************/
 
 struct SyscallHeader {
@@ -26,16 +30,31 @@ struct SyscallHeader {
 	unsigned int size;
 };
 
+/*** ファイルオープン *******************************************************/
+
+SceUID ( *sceIoOpen_Real )( const char *file, int flags, SceMode mode );
+
+SceUID sceIoOpen_Hook( const char *file, int flags, SceMode mode ){
+	DebugMsg( "File:%s\n", file );
+	
+	if( strstr( file, "title.pmf" )){
+		strcpy(( char *)file, "ms0:/seplugins/maplug.pmf" );
+	}
+	
+	return sceIoOpen_Real( file, flags, mode );
+}
+
 /*** Audio hook proc. *******************************************************/
 
 USHORT	g_uAudioOutputCnt	SEC_BSS_WORD;
+USHORT	g_uCtrlReadCnt		SEC_BSS_WORD;
 
 int ( *sceAudioOutputBlocking_Real )( int channel, int vol, void *buf );
 
 int sceAudioOutputBlocking_Hook( int channel, int vol, void *buf ){
 	int iRet = 0;
 	
-	if( !( g_uCtrlReadCnt < READ_CNT_FINISH && g_uAudioOutputCnt <= 436 )){
+	if( !( g_uCtrlReadCnt < READ_CNT_FINISH && g_uAudioOutputCnt < 436 )){
 		iRet = sceAudioOutputBlocking_Real( channel, vol, buf );
 	}
 	
@@ -45,12 +64,6 @@ int sceAudioOutputBlocking_Hook( int channel, int vol, void *buf ){
 }
 
 /*** パッドフック関数 *******************************************************/
-
-USHORT	g_uCtrlReadCnt		SEC_BSS_WORD;
-
-#define	READ_CNT_GPS_START			0x2000
-#define READ_CNT_FINISH				0xFFF0
-#define	READ_CNT_GPS_COMPLETE		( READ_CNT_FINISH - 20 )
 
 int ( *sceCtrlReadBufferPositive_Real )( SceCtrlData *pad_data, int count );
 
@@ -107,21 +120,6 @@ int sceCtrlReadBufferPositive_Hook( SceCtrlData *pad_data, int count ){
 }
 
 /*** API フック用 ***********************************************************/
-
-/*
-INLINE u32 NIDByName( const char *name ){
-	u8 digest[20];
-	u32 nid;
-	
-	if( sceKernelUtilsSha1Digest(( u8 * ) name, strlen( name ), digest ) >= 0 ){
-		nid = digest[0] | ( digest[1] << 8 ) | ( digest[2] << 16 ) | ( digest[3] << 24 );
-		DebugMsg( "NID:%08X:%s\n", nid, name );
-		return nid;
-	}
-	
-	return 0;
-}
-*/
 
 INLINE u32 FindNID( char modname[27], u32 nid ){
 	struct SceLibraryEntryTable *entry;
@@ -191,7 +189,7 @@ INLINE void *find_syscall_addr( u32 addr ){
 	 );
 	
 	if( !ptr ){
-		DebugMsg( "find_syscall_addr:NULL\n" );
+		DebugMsg( "find_syscall_addr:cfc0:NULL\n" );
 		return NULL;
 	}
 	
@@ -224,6 +222,19 @@ INLINE void *apiHookAddr( u32 *addr, void *func ){
 }
 
 /*
+INLINE u32 NIDByName( const char *name ){
+	u8 digest[20];
+	u32 nid;
+	
+	if( sceKernelUtilsSha1Digest(( u8 * ) name, strlen( name ), digest ) >= 0 ){
+		nid = digest[0] | ( digest[1] << 8 ) | ( digest[2] << 16 ) | ( digest[3] << 24 );
+		DebugMsg( "NID:%08X:%s\n", nid, name );
+		return nid;
+	}
+	
+	return 0;
+}
+
 INLINE u32 PatchNID( char modname[27], const char *funcname, void *func ){
 	u32 nidaddr = FindNID( modname, NIDByName( funcname ));
 	
@@ -263,11 +274,14 @@ int main_thread( SceSize args, void *argp ) {
 	while( !sceKernelFindModuleByName( "maplus" ))
 		sceKernelDelayThread( MAIN_THREAD_DELAY );
 	
+	
 	// GPS API フック開始
 	DebugMsg( "API hook start\n" );
 	
 	HOOK_API2( "sceController_Service",	sceCtrlReadBufferPositive,	0x1F803938 );
 	HOOK_API2( "sceAudio_Driver",		sceAudioOutputBlocking,		0x136CAF51 );
+	HOOK_API2( "sceIOFileManager",		sceIoOpen, 					0x109F50BC );
+	
 	
 	while( 1 ) sceKernelSleepThread();
 	

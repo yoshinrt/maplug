@@ -35,7 +35,7 @@ endif
 PSPSDK=$(shell psp-config --pspsdk-path)
 include $(PSPSDK)/lib/build_prx.mak
 
-VERSION=090
+VERSION=090a
 release:
 	make allclean
 	
@@ -50,7 +50,7 @@ release:
 	
 	( \
 		cd ..; \
-		cp -r MS_ROOT maplug$(VERSION); \
+		cp -r MS_ROOT pc_tools maplug$(VERSION); \
 		cp -r src/maplug*.prx maplug$(VERSION)/MS_ROOT/seplugins; \
 	)
 	
