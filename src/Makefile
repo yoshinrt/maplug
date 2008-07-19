@@ -50,8 +50,14 @@ release:
 	
 	( \
 		cd ..; \
-		cp -r MS_ROOT pc_tools maplug$(VERSION); \
+		cp -r MS_ROOT GpsLogCv maplug$(VERSION); \
 		cp -r src/maplug*.prx maplug$(VERSION)/MS_ROOT/seplugins; \
+	)
+	
+	( \
+		cd ../../gpshook/GPSLogCv; \
+		cp Release/gpslogcv.exe gpslogcv.[ch] psp.c readme.txt \
+			../../maplug/maplug$(VERSION)/GpsLogCv \
 	)
 	
 	( cd ../maplug$(VERSION); \
