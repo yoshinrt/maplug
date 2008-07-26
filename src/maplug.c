@@ -30,20 +30,6 @@ struct SyscallHeader {
 	unsigned int size;
 };
 
-/*** ファイルオープン *******************************************************/
-
-SceUID ( *sceIoOpen_Real )( const char *file, int flags, SceMode mode );
-
-SceUID sceIoOpen_Hook( const char *file, int flags, SceMode mode ){
-	DebugMsg( "File:%s\n", file );
-	
-	if( strstr( file, "title.pmf" )){
-		strcpy(( char *)file, "ms0:/seplugins/maplug.pmf" );
-	}
-	
-	return sceIoOpen_Real( file, flags, mode );
-}
-
 /*** Audio hook proc. *******************************************************/
 
 USHORT	g_uAudioOutputCnt	SEC_BSS_WORD;
@@ -280,8 +266,6 @@ int main_thread( SceSize args, void *argp ) {
 	
 	HOOK_API2( "sceController_Service",	sceCtrlReadBufferPositive,	0x1F803938 );
 	HOOK_API2( "sceAudio_Driver",		sceAudioOutputBlocking,		0x136CAF51 );
-	HOOK_API2( "sceIOFileManager",		sceIoOpen, 					0x109F50BC );
-	
 	
 	while( 1 ) sceKernelSleepThread();
 	
