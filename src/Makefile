@@ -61,7 +61,7 @@ release:
 	)
 	
 	( cd ../maplug$(VERSION); \
-	rm -rf `find . -name CVS`; \
+	rm -rf `find . -name .svn`; \
 	lha a -d ../maplug$(VERSION).lzh * )
 
 debug:
